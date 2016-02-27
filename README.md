@@ -1,5 +1,5 @@
 # Dynamic hosts editor
-As the way to connect to my computer at home from outside, I use n2n. It is great, by when I come back home a connect to home network, but hostname is still assigned to n2n IP, so I cannot use full potential of LAN. That's why created this simple program in Java, to help me use the maximum speed I can get.
+As the way to connect to my computer at home from outside, I use n2n. It is great, but when I come back home and connect to home network, my computer's hostname is still assigned to n2n's IP, so I cannot use full potential of LAN. That's why created this simple program in Java, to help me use the maximum speed I can get.
 # How it works
 The program pings periodicly list of IP's that target hostname can gain. When ping is sucessful it will assign that IP to hostname and continues to next hostname. Order of IP's that target hostname can gain is mandatory, e.g. first specify LAN IP and then n2n IP, so if you are at home, ping on the home IP will succed and assign hostname to it, but when you are somewhere else ping to home IP will fail, so program will try to ping n2n IP, which will suceed, so hostname will be assigned to computer's n2n IP.
 # Requitments
