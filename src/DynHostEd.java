@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Scanner;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DynHostEd {
     final static File settingsFile = new File("dhe.conf");
@@ -32,8 +33,7 @@ public class DynHostEd {
 	 * {hostname} = {firstTryIP, secondTryIP}
 	 */
 	if (!settingsFile.exists()) {
-	    System.out.println("Setting file (" + settingsFile.getAbsolutePath()
-		    + ") does not exist.\nDo you wish to be created? Y/n");
+	    System.out.println("Setting file (" + settingsFile.getAbsolutePath() + ") does not exist.\nDo you wish to be created? Y/n");
 
 	    Scanner in = new Scanner(System.in);
 	    if (in.nextLine().toLowerCase().startsWith("n")) {
@@ -58,18 +58,13 @@ public class DynHostEd {
 		e.printStackTrace();
 		System.exit(1);
 	    }
-	    System.out.println("Setting file has been sucessfuly created, now you shlould edit.\n"
-		    + "Usage is:");
-	    System.out.println("{" + paramHostnameFile + "} = {" + fileHostsDefaultLocation
-		    + "} - required parameter. " + "Specify where is hosts file located.");
-	    System.out.println("{" + paramScanInterval
-		    + "} = {10} - How often start ping on IPs in seconds." + " If not found, use default "
-		    + defaultScanInterval + " sec");
+	    System.out.println("Setting file has been sucessfuly created, now you shlould edit.\n" + "Usage is:");
+	    System.out.println("{" + paramHostnameFile + "} = {" + fileHostsDefaultLocation + "} - required parameter. " + "Specify where is hosts file located.");
+	    System.out.println("{" + paramScanInterval + "} = {10} - How often start ping on IPs in seconds." + " If not found, use default " + defaultScanInterval + " sec");
 	    System.out.println("{hostname} = {firstIPAttemp, secondIPAttemp, thirdIPAttemp, XIPAttemp}");
 	    System.out.println("{anotherHostname} = {firstIPAttemp, secondIPAttemp}");
 	    System.out.println("etc.");
-	    System.out
-		    .println("If fisrt attemp is sucessful, assing it to hostname. Otherwise try next one.");
+	    System.out.println("If fisrt attemp is sucessful, assing it to hostname. Otherwise try next one.");
 	    System.exit(0);
 	}
 
@@ -82,8 +77,7 @@ public class DynHostEd {
 	}
 
 	if (!prop.keyExist(paramHostnameFile)) {
-	    System.err.println("Param '" + paramHostnameFile + "' is required in settings file ("
-		    + settingsFile.getAbsolutePath() + ")");
+	    System.err.println("Param '" + paramHostnameFile + "' is required in settings file (" + settingsFile.getAbsolutePath() + ")");
 	    System.exit(1);
 	}
 	fileHosts = new File(prop.getString(paramHostnameFile));
@@ -110,67 +104,84 @@ public class DynHostEd {
 	    @Override
 	    public void run() {
 		System.out.println("Pinging hosts...");
-		for (String hostname : prop.propertiesNames) {
-		    if (hostname.contentEquals(paramHostnameFile)
-			    || hostname.contentEquals(paramScanInterval))
+		final AtomicInteger runningThreads = new AtomicInteger(0);
+		for (final String hostname : prop.propertiesNames) {
+		    if (hostname.contentEquals(paramHostnameFile) || hostname.contentEquals(paramScanInterval))
 			continue;
-		    System.out.println("Checking " + hostname);
-		    for (String ip : prop.getString(hostname).split(","))
-			if (ipReachable(ip)) {
-			    System.out.print("Assiging " + hostname + " to " + ip + " ... ");
-			    try {
-				BufferedReader in = new BufferedReader(new FileReader(fileHosts));
-				List<String> lines = new ArrayList<String>();
-				String lineIn;
-				boolean alreadySet = false;
-				boolean hostFound = false;
-				while ((lineIn = in.readLine()) != null) {
-				    if (lineIn.endsWith(" " + hostname) || lineIn.endsWith("\t" + hostname)) {
-					hostFound = true;
-					if (lineIn.startsWith(ip)) {
-					    alreadySet = true;
-					    System.out.println("already set");
-					    break;
+		    runningThreads.incrementAndGet();
+		    new Thread() {
+			public void run() {
+			    System.out.println("Checking " + hostname);
+			    for (String ip : prop.getString(hostname).split(","))
+				if (ipReachable(ip)) {
+				    StringBuilder outStr = new StringBuilder();
+				    outStr.append("Assiging " + hostname + " to " + ip + " ... ");
+				    try {
+					BufferedReader in = new BufferedReader(new FileReader(fileHosts));
+					List<String> lines = new ArrayList<String>();
+					String lineIn;
+					boolean alreadySet = false;
+					boolean hostFound = false;
+					while ((lineIn = in.readLine()) != null) {
+					    if (lineIn.endsWith(" " + hostname) || lineIn.endsWith("\t" + hostname)) {
+						hostFound = true;
+						if (lineIn.startsWith(ip)) {
+						    alreadySet = true;
+						    outStr.append("already set");
+						    break;
+						}
+						lineIn = ip + "\t" + hostname;
+					    }
+					    lines.add(lineIn);
 					}
-					lineIn = ip + "\t" + hostname;
+					in.close();
+
+					if (!hostFound) {
+					    outStr.append(" not found in hosts file, adding it manually ... ");
+					    lines.add(ip + "\t" + hostname);
+					}
+
+					if (!alreadySet) {
+					    BufferedWriter out = new BufferedWriter(new FileWriter(fileHosts));
+					    for (String lineOut : lines)
+						out.write(lineOut + System.lineSeparator());
+					    out.close();
+					    outStr.append("done");
+					}
+
+				    } catch (IOException e) {
+					outStr.append("fail");
+					e.printStackTrace();
+				    } finally {
+					System.out.println(outStr.toString());
 				    }
-				    lines.add(lineIn);
+				    break;
 				}
-				in.close();
-				
-				if(!hostFound){
-				    System.out.print(" not found in hosts file, adding it manually ... ");
-				    lines.add(ip + "\t" + hostname);
-				}
-
-				if (!alreadySet) {
-				    BufferedWriter out = new BufferedWriter(new FileWriter(fileHosts));
-				    for (String lineOut : lines)
-					out.write(lineOut + System.lineSeparator());
-				    out.close();
-				    System.out.println("done");
-				}
-
-			    } catch (IOException e) {
-				System.out.println("fail");
-				e.printStackTrace();
-			    }
-			    break;
+			    runningThreads.decrementAndGet();
 			}
+		    }.start();
+		}
+		while (runningThreads.get() > 0) {
+		    System.out.println("There is " + runningThreads.get() + " pinging threads left");
+		    try {
+			Thread.sleep(2000);
+		    } catch (InterruptedException e) {
+			e.printStackTrace();
+		    }
 		}
 		System.out.println("Pinging completed\n\n");
 	    }
 
 	    private boolean ipReachable(final String ip) {
-		System.out.print("\tPingining " + ip + " ... ");
+		System.out.println("\tPingining " + ip);
 		try {
 		    Process ping = Runtime.getRuntime().exec(pingCommand + ip);
 		    ping.waitFor();
 		    if (ping.exitValue() != 0) {
-			System.out.println("fail");
+			System.out.println("\t" + ip + " is not reachable");
 			return false;
 		    }
-		    System.out.println("sucess");
+		    System.out.println("\t" + ip + " is reachable");
 		    return true;
 		} catch (IOException | InterruptedException e) {
 		    System.out.println("Error while pinging " + ip);
